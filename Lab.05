@@ -27,13 +27,10 @@
  * touch screen code
  */
 
-// Initialize servo motors based on the specified dimension of servos ('x' or 'y')
-void initial_servos(char dim_servos)
+// Timer setup
+void init_timer()
 {
-    // Servo Initialization for 'x' Dimension
-    if(dim_servos == 'x')
-    {
-        // Setup Timer2
+    // Setup Timer2
         CLEARBIT(T2CONbits.TON);    // Disable Timer2
         CLEARBIT(T2CONbits.TCS);    // internal clock source
         CLEARBIT(T2CONbits.TGATE);  // Disable Gated Timer mode
@@ -41,12 +38,19 @@ void initial_servos(char dim_servos)
         T2CONbits.TCKPS = 0b10;     // Set Timer 2 prescaler to 1:64
         CLEARBIT(IFS0bits.T2IF);    // Clear Timer 2 interrupt flag
         CLEARBIT(IEC0bits.T2IE);    // Disable Timer 2 interrupt
-        PR2 = (PWM_CYC_US / 1000000) * (FCY / 64);  // Set Timer 2 period (20ms) (PR2=4000)
+        PR2 = (PWM_CYC_US / 1000000.0f) * (FCY / 64);  // Set Timer 2 period (20ms) (PR2=4000)
+}
 
+// Initialize servo motors based on the specified dimension of servos ('x' or 'y')
+void initial_servos(char dim_servos)
+{
+    // Servo Initialization for 'x' Dimension
+    if(dim_servos == 'x')
+    {
         // Setup OC8
         CLEARBIT(TRISDbits.TRISD7); // Set RD7 (Output Compare 8) as output
-        OC8R = ((PWM_CYC_US - PWM_MID_US) / 1000000) * (FCY / 64); // Set initial duty cycle for OC8
-        OC8RS = ((PWM_CYC_US - PWM_MID_US) / 1000000) * (FCY / 64); // Set secondary duty
+        OC8R = ((PWM_CYC_US - PWM_MID_US) / 1000000.0f) * (FCY / 64); // Set initial duty cycle for OC8
+        OC8RS = ((PWM_CYC_US - PWM_MID_US) / 1000000.0f) * (FCY / 64); // Set secondary duty
         OC8CON = 0x0006; // Configure OC8 for PWM mode without fault check, using Timer 2
     }
 
@@ -55,8 +59,8 @@ void initial_servos(char dim_servos)
     {
         // Setup OC7
         CLEARBIT(TRISDbits.TRISD6); // Set RD6 (Output Compare 7) as output
-        OC7R = ((PWM_CYC_US - PWM_MID_US) / 1000000) * (FCY / 64); // Set initial duty cycle for OC8
-        OC7RS = ((PWM_CYC_US - PWM_MID_US) / 1000000) * (FCY / 64); // Set secondary duty
+        OC7R = ((PWM_CYC_US - PWM_MID_US) / 1000000.0f) * (FCY / 64); // Set initial duty cycle for OC8
+        OC7RS = ((PWM_CYC_US - PWM_MID_US) / 1000000.0f) * (FCY / 64); // Set secondary duty
         OC7CON = 0x0006; // Configure OC7 for PWM mode without fault check, using Timer 2
 
         // Turn on Timer 2
@@ -70,13 +74,13 @@ void set_dutycycle(char dim_servos, int duty_cycle)
     // Set Duty Cycle for 'x' Dimension Servo
     if(dim_servos == 'x')
     {
-        OC8RS = ((PWM_CYC_US - duty_cycle) / 1000000) * (FCY / 64); // Load new duty cycle for OC8
+        OC8RS = ((PWM_CYC_US - duty_cycle) / 1000000.0f) * (FCY / 64); // Load new duty cycle for OC8
     }
 
     // Set Duty Cycle for 'y' Dimension Servo
     else if(dim_servos == 'y')
     {
-        OC7RS = ((PWM_CYC_US - duty_cycle) / 1000000) * (FCY / 64);// Load new duty cycle for OC7
+        OC7RS = ((PWM_CYC_US - duty_cycle) / 1000000.0f) * (FCY / 64);// Load new duty cycle for OC7
     }
 }
 
@@ -191,15 +195,18 @@ void main_loop()
     lcd_printf("Group: Group3");
     
     // initialize touchscreen
-    init_touch_screen()
+    init_touch_screen();
 
     // Initialize DAC (only use ADC1)
-    init_dac()
+    init_dac();
+    
+    // Initialize timer2
+    init_timer();
 
     // initialize servos
     initial_servos('x');
     initial_servos('y');
-
+    
     // excute the mission: 1->2->3->4->1
     while(TRUE) {
         move_to_bottom_left();
@@ -214,8 +221,8 @@ void main_loop()
 }
 
 // Define the global variable of coordination x and y
-volatile uint16_t postion_x;
-volatile uint16_t postion_y;
+volatile uint16_t position_x;
+volatile uint16_t position_y;
 
 // Move to bottom left corner
 void move_to_bottom_left()
@@ -227,77 +234,77 @@ void move_to_bottom_left()
     // read X coordination
     dim_change('x');
     __delay_ms(10);
-    postion_x = read_ball_position();
+    position_x = read_ball_position();
 
     // read Y coordination
     dim_change('y');
     __delay_ms(10);
-    postion_y = read_ball_position();
+    position_y = read_ball_position();
 
     // display the coordinations in the lcd screen
     lcd_locate(0, 5);
-    lcd_printf('x/y: %03d/%03d', postion_x, postion_y);
+    lcd_printf("x/y: %03d/%03d", position_x, position_y);
 }
 
 // Move to bottom right corner
 void move_to_bottom_right()
 {
     // set the dutycycle of servos (y not change)
-    set_dutycycle('x', PWM_MAX_US);
+    set_dutycycle('y', PWM_MAX_US);
 
     // read X coordination
     dim_change('x');
     __delay_ms(10);
-    postion_x = read_ball_position();
+    position_x = read_ball_position();
 
     // read Y coordination
     dim_change('y');
     __delay_ms(10);
-    postion_y = read_ball_position();
+    position_y = read_ball_position();
 
     // display the coordinations in the lcd screen
     lcd_locate(0, 5);
-    lcd_printf('x/y: %03d/%03d', postion_x, postion_y);
+    lcd_printf("x/y: %03d/%03d", position_x, position_y);
 }
 
 // Move to top right corner
 void move_to_top_right()
 {
     // set the dutycycle of servos (x not change)
-    set_dutycycle('y', PWM_MAX_US);
+    set_dutycycle('x', PWM_MAX_US);
 
     // read X coordination
     dim_change('x');
     __delay_ms(10);
-    postion_x = read_ball_position();
+    position_x = read_ball_position();
 
     // read Y coordination
     dim_change('y');
     __delay_ms(10);
-    postion_y = read_ball_position();
+    position_y = read_ball_position();
 
     // display the coordinations in the lcd screen
     lcd_locate(0, 5);
-    lcd_printf('x/y: %03d/%03d', postion_x, postion_y);
+    lcd_printf("x/y: %03d/%03d", position_x, position_y);
 }
 
 // Move to top left corner
-void move_to_top_right()
+void move_to_top_left()
 {
     // set the dutycycle of servos (y not change)
-    set_dutycycle('x', PWM_MIN_US);
+    set_dutycycle('y', PWM_MIN_US);
 
     // read X coordination
     dim_change('x');
     __delay_ms(10);
-    postion_x = read_ball_position();
+    position_x = read_ball_position();
 
     // read Y coordination
     dim_change('y');
     __delay_ms(10);
-    postion_y = read_ball_position();
+    position_y = read_ball_position();
 
     // display the coordinations in the lcd screen
     lcd_locate(0, 5);
-    lcd_printf('x/y: %03d/%03d', postion_x, postion_y);
+    lcd_printf("x/y: %03d/%03d", position_x, position_y);
 }
