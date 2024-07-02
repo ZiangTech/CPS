@@ -33,6 +33,7 @@ void initial_servos(char dim_servos)
     // Servo Initialization for 'x' Dimension
     if(dim_servos == 'x')
     {
+       
         // Disable Timer2
         CLEARBIT(T2CONbits.TON);    
         
@@ -89,20 +90,17 @@ void set_dutycycle(char dim_servos, int duty_cycle)
 // Initialize touch screen
 void init_touch_screen()
 {
-    // Set the I/O pins E1, E2, E3 to be output pins
-    CLEARBIT(TRISEbits.TRISE1); // Set TRISE1 to output
-    CLEARBIT(TRISEbits.TRISE2); // Set TRISE2 to output
-    CLEARBIT(TRISEbits.TRISE3); // Set TRISE3 to output
     
     // Touch screen is in standby mode(E1=1, E2=1, E3=0)
     SETBIT(PORTEbits.RE1); // Set RE1 pin
     SETBIT(PORTEbits.RE2); // Set RE2 pin
     CLEARBIT(PORTEbits.RE3); // Clear RE3 pin
-}
-
-// Initialize DAC (only use ADC1)
-void init_dac()
-{
+    
+    // Set the I/O pins E1, E2, E3 to be output pins
+    CLEARBIT(TRISEbits.TRISE1); // Set TRISE1 to output
+    CLEARBIT(TRISEbits.TRISE2); // Set TRISE2 to output
+    CLEARBIT(TRISEbits.TRISE3); // Set TRISE3 to output
+    
     // Disable ADC1
     CLEARBIT(AD1CON1bits.ADON);
 
@@ -115,6 +113,7 @@ void init_dac()
     CLEARBIT(AD1PCFGLbits.PCFG15); // Set AN15 as analog
 
     // Configure AD1CON1
+    CLEARBIT(AD1CON1bits.AD12B); // Set 10-bit Operation Mode
     AD1CON1bits.FORM = 0; // Set output format to integer
     AD1CON1bits.SSRC = 0x7; // Set automatic conversion
 
@@ -130,7 +129,42 @@ void init_dac()
 
     // enable ADC1
     SETBIT(AD1CON1bits.ADON); // Enable ADC module
+    
+    
 }
+
+// Initialize DAC (only use ADC1)
+/*void init_dac()
+{
+    // Disable ADC1
+    CLEARBIT(AD1CON1bits.ADON);
+
+    // Set AN9(Pin RB9) and AN11(Pin RB11) to input pins
+    SETBIT(TRISBbits.TRISB9); // Set RB9 (AN9) as input
+    SETBIT(TRISBbits.TRISB15); // Set RB15 (AN15) as input
+
+    // Set AN9(Pin RB9) and AN11(Pin RB11) as analog signal
+    CLEARBIT(AD1PCFGLbits.PCFG9); // Set AN9 as analog
+    CLEARBIT(AD1PCFGLbits.PCFG15); // Set AN15 as analog
+
+    // Configure AD1CON1
+    CLEARBIT(AD1CON1bits.AD12B); // Set 10-bit Operation Mode
+    AD1CON1bits.FORM = 0; // Set output format to integer
+    AD1CON1bits.SSRC = 0x7; // Set automatic conversion
+
+    // Configure AD1CON2
+    AD1CON2 = 0; // Not using scanning sampling
+
+    // Configure AD1CON3
+    CLEARBIT(AD1CON3bits.ADRC); // Use internal clock source
+    AD1CON3bits.SAMC = 0x1F; // Auto-sample time = 31 TAD
+    AD1CON3bits.ADCS = 0x2; // ADC Conversion Clock = 3 Tcy
+
+    // Leave Configure AD1CON4 as its default value
+
+    // enable ADC1
+    SETBIT(AD1CON1bits.ADON); // Enable ADC module
+}*/
 
 // Change the dimension for touch screen
 void dim_change(char dim_touch_screen)
@@ -204,14 +238,14 @@ void main_loop()
     init_touch_screen();
 
     // Initialize DAC (only use ADC1)
-    init_dac();
+    //init_dac();
 
     // initialize servos
     initial_servos('x');
     initial_servos('y');
     
-    uint16_t postion_x;
-    uint16_t postion_y;
+    uint16_t pos_x;
+    uint16_t pos_y;
 
     // excute the mission: 1->2->3->4->1
     while(TRUE) {
@@ -222,16 +256,16 @@ void main_loop()
         // read X coordination
         dim_change('x');
         __delay_ms(10);
-        postion_x = read_ball_position();
+        pos_x = read_ball_position();
 
         // read Y coordination
         dim_change('y');
         __delay_ms(10);
-        postion_y = read_ball_position();
+        pos_y = read_ball_position();
 
         // display the coordinations in the lcd screen
         lcd_locate(0, 5);
-        lcd_printf("x/y: %03d/%03d", postion_x, postion_y);
+        lcd_printf("x/y: %03d/%03d", pos_x, pos_y);
         
         __delay_ms(5000);
         
@@ -241,16 +275,16 @@ void main_loop()
         // read X coordination
         dim_change('x');
         __delay_ms(10);
-        postion_x = read_ball_position();
+        pos_x = read_ball_position();
 
         // read Y coordination
         dim_change('y');
         __delay_ms(10);
-        postion_y = read_ball_position();
+        pos_y = read_ball_position();
 
         // display the coordinations in the lcd screen
         lcd_locate(0, 5);
-        lcd_printf("x/y: %03d/%03d", postion_x, postion_y);
+        lcd_printf("x/y: %03d/%03d", pos_x, pos_y);
 
         __delay_ms(5000);
         
@@ -260,16 +294,16 @@ void main_loop()
         // read X coordination
         dim_change('x');
         __delay_ms(10);
-        postion_x = read_ball_position();
+        pos_x = read_ball_position();
 
         // read Y coordination
         dim_change('y');
         __delay_ms(10);
-        postion_y = read_ball_position();
+        pos_y = read_ball_position();
 
         // display the coordinations in the lcd screen
         lcd_locate(0, 5);
-        lcd_printf("x/y: %03d/%03d", postion_x, postion_y);
+        lcd_printf("x/y: %03d/%03d", pos_x, pos_y);
         
         __delay_ms(5000);
         
@@ -279,16 +313,16 @@ void main_loop()
         // read X coordination
         dim_change('x');
         __delay_ms(10);
-        postion_x = read_ball_position();
+        pos_x = read_ball_position();
 
         // read Y coordination
         dim_change('y');
         __delay_ms(10);
-        postion_y = read_ball_position();
+        pos_y = read_ball_position();
 
         // display the coordinations in the lcd screen
         lcd_locate(0, 5);
-        lcd_printf("x/y: %03d/%03d", postion_x, postion_y);
+        lcd_printf("x/y: %03d/%03d", pos_x, pos_y);
         
         __delay_ms(5000);
         
