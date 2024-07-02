@@ -1,0 +1,303 @@
+#include "lab05.h"
+
+#include <xc.h>
+//do not change the order of the following 2 definitions
+#define FCY 12800000UL
+#include <libpic30.h>
+
+#include "types.h"
+#include "lcd.h"
+#include "led.h"
+
+/*
+ * PWM code
+ */
+
+#define TCKPS_1   0x00
+#define TCKPS_8   0x01
+#define TCKPS_64  0x02
+#define TCKPS_256 0x03
+
+#define PWM_MIN_US 1000
+#define PWM_MID_US 1500
+#define PWM_MAX_US 2000
+#define PWM_CYC_US 20000
+
+/*
+ * touch screen code
+ */
+
+// Initialize servo motors based on the specified dimension of servos ('x' or 'y')
+void initial_servos(char dim_servos)
+{
+    // Servo Initialization for 'x' Dimension
+    if(dim_servos == 'x')
+    {
+        // Setup Timer2
+        CLEARBIT(T2CONbits.TON);    // Disable Timer2
+        CLEARBIT(T2CONbits.TCS);    // internal clock source
+        CLEARBIT(T2CONbits.TGATE);  // Disable Gated Timer mode
+        TMR2 = 0x00;                // Clear Timer 2 register
+        T2CONbits.TCKPS = 0b10;     // Set Timer 2 prescaler to 1:64
+        CLEARBIT(IFS0bits.T2IF);    // Clear Timer 2 interrupt flag
+        CLEARBIT(IEC0bits.T2IE);    // Disable Timer 2 interrupt
+        PR2 = (PWM_CYC_US / 1000000) * (FCY / 64);  // Set Timer 2 period (20ms) (PR2=4000)
+
+        // Setup OC8
+        CLEARBIT(TRISDbits.TRISD7); // Set RD7 (Output Compare 8) as output
+        OC8R = ((PWM_CYC_US - PWM_MID_US) / 1000000) * (FCY / 64); // Set initial duty cycle for OC8
+        OC8RS = ((PWM_CYC_US - PWM_MID_US) / 1000000) * (FCY / 64); // Set secondary duty
+        OC8CON = 0x0006; // Configure OC8 for PWM mode without fault check, using Timer 2
+    }
+
+    // Servo Initialization for 'y' Dimension
+    else if(dim_servos == 'y')
+    {
+        // Setup OC7
+        CLEARBIT(TRISDbits.TRISD6); // Set RD6 (Output Compare 7) as output
+        OC7R = ((PWM_CYC_US - PWM_MID_US) / 1000000) * (FCY / 64); // Set initial duty cycle for OC8
+        OC7RS = ((PWM_CYC_US - PWM_MID_US) / 1000000) * (FCY / 64); // Set secondary duty
+        OC7CON = 0x0006; // Configure OC7 for PWM mode without fault check, using Timer 2
+
+        // Turn on Timer 2
+        SETBIT(T2CONbits.TON);
+    }
+}
+
+// Set the duty cycle of servo motors based on the servos' dimension and duty cycle value
+void set_dutycycle(char dim_servos, int duty_cycle)
+{
+    // Set Duty Cycle for 'x' Dimension Servo
+    if(dim_servos == 'x')
+    {
+        OC8RS = ((PWM_CYC_US - duty_cycle) / 1000000) * (FCY / 64); // Load new duty cycle for OC8
+    }
+
+    // Set Duty Cycle for 'y' Dimension Servo
+    else if(dim_servos == 'y')
+    {
+        OC7RS = ((PWM_CYC_US - duty_cycle) / 1000000) * (FCY / 64);// Load new duty cycle for OC7
+    }
+}
+
+// Initialize touch screen
+void init_touch_screen()
+{
+    // Set the I/O pins E1, E2, E3 to be output pins
+    CLEARBIT(TRISEbits.TRISE1); // Set TRISE1 to output
+    CLEARBIT(TRISEbits.TRISE2); // Set TRISE2 to output
+    CLEARBIT(TRISEbits.TRISE3); // Set TRISE3 to output
+    
+    // Touch screen is in standby mode(E1=1, E2=1, E3=0)
+    SETBIT(PORTEbits.RE1); // Set RE1 pin
+    SETBIT(PORTEbits.RE2); // Set RE2 pin
+    CLEARBIT(PORTEbits.RE3); // Clear RE3 pin
+}
+
+// Initialize DAC (only use ADC1)
+void init_dac()
+{
+    // Disable ADC1
+    CLEARBIT(AD1CON1bits.ADON);
+
+    // Set AN9(Pin RB9) and AN11(Pin RB11) to input pins
+    SETBIT(TRISBbits.TRISB9); // Set RB9 (AN9) as input
+    SETBIT(TRISBbits.TRISB15); // Set RB15 (AN15) as input
+
+    // Set AN9(Pin RB9) and AN11(Pin RB11) as analog signal
+    CLEARBIT(AD1PCFGLbits.PCFG9); // Set AN9 as analog
+    CLEARBIT(AD1PCFGLbits.PCFG15); // Set AN15 as analog
+
+    // Configure AD1CON1
+    AD1CON1bits.FORM = 0; // Set output format to integer
+    AD1CON1bits.SSRC = 0x7; // Set automatic conversion
+
+    // Configure AD1CON2
+    AD1CON2 = 0; // Not using scanning sampling
+
+    // Configure AD1CON3
+    CLEARBIT(AD1CON3bits.ADRC); // Use internal clock source
+    AD1CON3bits.SAMC = 0x1F; // Auto-sample time = 31 TAD
+    AD1CON3bits.ADCS = 0x2; // ADC Conversion Clock = 3 Tcy
+
+    // Leave Configure AD1CON4 as its default value
+
+    // enable ADC1
+    SETBIT(AD1CON1bits.ADON); // Enable ADC module
+}
+
+// Change the dimension for touch screen
+void dim_change(char dim_touch_screen)
+{
+    // Measure the coordinate of x axis
+    if(dim_touch_screen == 'x') 
+    {
+        // Touch screen measurement the X coordination (E1=0, E2=1, E3=1)
+        CLEARBIT(PORTEbits.RE1); // E1=0
+        Nop(); 
+        SETBIT(PORTEbits.RE2); // E2=1
+        Nop(); 
+        SETBIT(PORTEbits.RE3); // E3=1
+        Nop(); 
+
+        // Set ADC1 to sample analog signal from AN15
+        AD1CHS0bits.CH0SA = 0x000F;
+    }
+    
+    // Measure the coordinate of x axis
+    else if(dim_touch_screen == 'y') 
+    {
+        // Touch screen measurement the X coordination (E1=1, E2=0, E3=0)
+        SETBIT(PORTEbits.RE1); // E1=1
+        Nop(); 
+        CLEARBIT(PORTEbits.RE2); // E2=0
+        Nop(); 
+        CLEARBIT(PORTEbits.RE3); // E3=0
+        Nop(); 
+
+        // Set ADC1 to sample analog signal from AN9
+        AD1CHS0bits.CH0SA = 0x0009;
+    }
+}
+
+// Read Ball's position using ADC1
+uint16_t read_ball_position()
+{
+    SETBIT(AD1CON1bits.SAMP);   // start to sample
+    while(!AD1CON1bits.DONE);   // wait for conversion process to finish
+    CLEARBIT(AD1CON1bits.DONE); // clear conversion done bit
+    return ADC1BUF0;    // return sample datas from ADC1 (with 16bits integers)
+}
+
+
+
+/*
+ * main loop
+ */
+
+// function declaration
+void move_to_bottom_left();
+void move_to_bottom_right();
+void move_to_top_right();
+void move_to_top_left();
+
+// main loop
+void main_loop()
+{
+    // print assignment information
+    lcd_printf("Lab05: Touchscreen &\r\n");
+    lcd_printf("       Servos");
+    lcd_locate(0, 2);
+    lcd_printf("Group: Group3");
+    
+    // initialize touchscreen
+    init_touch_screen()
+
+    // Initialize DAC (only use ADC1)
+    init_dac()
+
+    // initialize servos
+    initial_servos('x');
+    initial_servos('y');
+
+    // excute the mission: 1->2->3->4->1
+    while(TRUE) {
+        move_to_bottom_left();
+        __delay_ms(5000);
+        move_to_bottom_right();
+        __delay_ms(5000);
+        move_to_top_right();
+        __delay_ms(5000);
+        move_to_top_left();
+        __delay_ms(5000);
+    }
+}
+
+// Define the global variable of coordination x and y
+volatile uint16_t postion_x;
+volatile uint16_t postion_y;
+
+// Move to bottom left corner
+void move_to_bottom_left()
+{
+    // set the dutycycle of servos
+    set_dutycycle('x', PWM_MIN_US);
+    set_dutycycle('y', PWM_MIN_US);
+
+    // read X coordination
+    dim_change('x');
+    __delay_ms(10);
+    postion_x = read_ball_position();
+
+    // read Y coordination
+    dim_change('y');
+    __delay_ms(10);
+    postion_y = read_ball_position();
+
+    // display the coordinations in the lcd screen
+    lcd_locate(0, 5);
+    lcd_printf('x/y: %03d/%03d', postion_x, postion_y);
+}
+
+// Move to bottom right corner
+void move_to_bottom_right()
+{
+    // set the dutycycle of servos (y not change)
+    set_dutycycle('x', PWM_MAX_US);
+
+    // read X coordination
+    dim_change('x');
+    __delay_ms(10);
+    postion_x = read_ball_position();
+
+    // read Y coordination
+    dim_change('y');
+    __delay_ms(10);
+    postion_y = read_ball_position();
+
+    // display the coordinations in the lcd screen
+    lcd_locate(0, 5);
+    lcd_printf('x/y: %03d/%03d', postion_x, postion_y);
+}
+
+// Move to top right corner
+void move_to_top_right()
+{
+    // set the dutycycle of servos (x not change)
+    set_dutycycle('y', PWM_MAX_US);
+
+    // read X coordination
+    dim_change('x');
+    __delay_ms(10);
+    postion_x = read_ball_position();
+
+    // read Y coordination
+    dim_change('y');
+    __delay_ms(10);
+    postion_y = read_ball_position();
+
+    // display the coordinations in the lcd screen
+    lcd_locate(0, 5);
+    lcd_printf('x/y: %03d/%03d', postion_x, postion_y);
+}
+
+// Move to top left corner
+void move_to_top_right()
+{
+    // set the dutycycle of servos (y not change)
+    set_dutycycle('x', PWM_MIN_US);
+
+    // read X coordination
+    dim_change('x');
+    __delay_ms(10);
+    postion_x = read_ball_position();
+
+    // read Y coordination
+    dim_change('y');
+    __delay_ms(10);
+    postion_y = read_ball_position();
+
+    // display the coordinations in the lcd screen
+    lcd_locate(0, 5);
+    lcd_printf('x/y: %03d/%03d', postion_x, postion_y);
+}
