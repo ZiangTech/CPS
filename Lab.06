@@ -1,0 +1,517 @@
+#include "lab06.h"
+
+#include <xc.h>
+//do not change the order of the following 2 definitions
+#define FCY 12800000UL
+#include <libpic30.h>
+#include <stdint.h>
+
+#include <math.h>
+
+#include "types.h"
+#include "lcd.h"
+#include "led.h"
+
+
+/*
+ * Parameter
+ */
+
+// Low pass filters coefficients from Matlab
+#define B1 0.1602004f 
+#define B2 0.1602004f
+#define A2 -0.6795993f
+
+// PD controller coefficients from tuning
+#define Kp_x 0.001f
+#define Kd_x 0.02f
+#define Kp_y 0.001f
+#define Kd_y 0.02f
+
+/*
+ * Common Definitions
+ */
+
+// Prescaler
+#define TCKPS_1   0x00
+#define TCKPS_8   0x01
+#define TCKPS_64  0x02
+#define TCKPS_256 0x03
+
+// Parameters controlling the PWM signal
+#define PWM_MIN_US 1000
+#define PWM_MID_US 1500
+#define PWM_MAX_US 2000
+#define PWM_CYC_US 20000
+
+// the PWM signal Maintaining the ball in a horizontal position
+#define X_PWM_horizontal_position_US 1660
+#define Y_PWM_horizontal_position_US 1590
+
+// Parameters of the target circle trajectory
+#define RD 100
+#define PI 3.14159f
+#define X_CEN  295
+#define Y_CEN  385
+#define T_CIR  600
+
+/*
+ * Global Variables
+ */
+
+// Positions in X and Y directions
+volatile float set_pos_x;    // reference position x
+volatile float set_pos_y;    // reference position y
+volatile uint16_t current_pos_x; // position x with noisy
+volatile uint16_t current_pos_y; // position y with noisy
+volatile float filtered_pos_x;    // position x without noisy
+volatile float filtered_pos_y;    // position y without noisy
+
+// System time counter every interrupt
+volatile uint16_t system_time_counter = 0;
+
+// Time values in PD controller
+volatile float current_time_x = 0;
+volatile float current_time_y = 0;
+volatile float previous_time_x = 0;
+volatile float previous_time_y = 0;
+
+// Error values in PD controller
+volatile float current_err_x = 0;
+volatile float current_err_y = 0;
+volatile float previous_err_x = 0;
+volatile float previous_err_y = 0;
+
+// Force of x and y-axis resulted by PD controller
+volatile float Fp_x;
+volatile float Fd_x;
+volatile float Fpd_x;
+volatile float Fp_y;
+volatile float Fd_y;
+volatile float Fpd_y;
+
+// new position of surface in x and y-axis
+uint16_t X_PWM_PD_position_US
+uint16_t Y_PWM_PD_position_US
+
+// Define the global variable of coordination x and y
+volatile uint16_t position_x;
+volatile uint16_t position_y;
+
+// Frequency for the circular motion calculation
+volatile float w_f = 2 * PI * (1 / T_CIR);
+
+// The total number of missed deadlines
+volatile uint16_t missed_deadlines_sum;
+
+// Setting the flags of interrupt and axis toggling
+volatile char axis_change_flag;
+volatile char interrupt_execute_flag;
+
+/*
+ * Timer Code
+ */
+
+void initialize_timer()
+{
+    // Enable RTC Oscillator -> this effectively does OSCCONbits.LPOSCEN = 1
+    // but the OSCCON register is lock protected. That means you would have to 
+    // write a specific sequence of numbers to the register OSCCONL. After that 
+    // the write access to OSCCONL will be enabled for one instruction cycle.
+    // The function __builtin_write_OSCCONL(val) does the unlocking sequence and
+    // afterwards writes the value val to that register. (OSCCONL represents the
+    // lower 8 bits of the register OSCCON)
+    __builtin_write_OSCCONL(OSCCONL | 2);
+    
+    // configure timer
+    T1CONbits.TON = 0; // Disable Timer1
+    T1CONbits.TCKPS = TCKPS_256; // Set Timer1 prescaler to 1:256
+    T1CONbits.TCS = 0;  // Use internal clock source
+    T1CONbits.TGATE = 0; // Disable gated time accumulation
+    T1CONbits.TSYNC = 0; // Disable synchronization
+
+    PR1 = (1 / 100) * (FCY / 256); // Set Timer1 period for 10ms interrupt
+    TMR1 = 0x00; // Reset Timer Values
+
+    IPC0bits.T1IP = 0x01; // Set Timer1 interrupt priority
+    IFS0bits.T1IF = 0; // Clear Timer1 interrupt flag
+    IEC0bits.T1IE = 1; // Enable Timer1 interrupt
+    T1CONbits.TON = 1; // Enable Timer1
+}
+
+/*
+ * Servo Code
+ */
+
+// Initialize servo motors based on the specified dimension of servos ('x' or 'y')
+void initial_servos(char dim_servos)
+{
+    // Servo Initialization for 'x' Dimension
+    if(dim_servos == 'x')
+    {
+        // Setup Timer2
+        CLEARBIT(T2CONbits.TON);    // Disable Timer2
+        CLEARBIT(T2CONbits.TCS);    // internal clock source
+        CLEARBIT(T2CONbits.TGATE);  // Disable Gated Timer mode
+        TMR2 = 0x00;                // Clear Timer 2 register
+        T2CONbits.TCKPS = 0b10;     // Set Timer 2 prescaler to 1:64
+        CLEARBIT(IFS0bits.T2IF);    // Clear Timer 2 interrupt flag
+        CLEARBIT(IEC0bits.T2IE);    // Disable Timer 2 interrupt
+        PR2 = (PWM_CYC_US / 1000000) * (FCY / 64);  // Set Timer 2 period (20ms) (PR2=4000)
+
+        // Setup OC8
+        CLEARBIT(TRISDbits.TRISD7); // Set RD7 (Output Compare 8) as output
+        OC8R = ((PWM_CYC_US - PWM_MID_US) / 1000000) * (FCY / 64); // Set initial duty cycle for OC8
+        OC8RS = ((PWM_CYC_US - PWM_MID_US) / 1000000) * (FCY / 64); // Set secondary duty
+        OC8CON = 0x0006; // Configure OC8 for PWM mode without fault check, using Timer 2
+    }
+
+    // Servo Initialization for 'y' Dimension
+    else if(dim_servos == 'y')
+    {
+        // Setup OC7
+        CLEARBIT(TRISDbits.TRISD6); // Set RD6 (Output Compare 7) as output
+        OC7R = ((PWM_CYC_US - PWM_MID_US) / 1000000) * (FCY / 64); // Set initial duty cycle for OC8
+        OC7RS = ((PWM_CYC_US - PWM_MID_US) / 1000000) * (FCY / 64); // Set secondary duty
+        OC7CON = 0x0006; // Configure OC7 for PWM mode without fault check, using Timer 2
+
+        // Turn on Timer 2
+        SETBIT(T2CONbits.TON);
+    }
+}
+
+// Set the duty cycle of servo motors based on the servos' dimension and duty cycle value
+void set_dutycycle(char dim_servos, int duty_cycle)
+{
+    // Set Duty Cycle for 'x' Dimension Servo
+    if(dim_servos == 'x')
+    {
+        OC8RS = ((PWM_CYC_US - duty_cycle) / 1000000) * (FCY / 64); // Load new duty cycle for OC8
+    }
+
+    // Set Duty Cycle for 'y' Dimension Servo
+    else if(dim_servos == 'y')
+    {
+        OC7RS = ((PWM_CYC_US - duty_cycle) / 1000000) * (FCY / 64);// Load new duty cycle for OC7
+    }
+}
+
+
+/*
+ * Touch screen code
+ */
+
+// Initialize touch screen
+void init_touch_screen()
+{
+    // Set the I/O pins E1, E2, E3 to be output pins
+    CLEARBIT(TRISEbits.TRISE1); // Set TRISE1 to output
+    CLEARBIT(TRISEbits.TRISE2); // Set TRISE2 to output
+    CLEARBIT(TRISEbits.TRISE3); // Set TRISE3 to output
+    
+    // Touch screen is in standby mode(E1=1, E2=1, E3=0)
+    SETBIT(PORTEbits.RE1); // Set RE1 pin
+    SETBIT(PORTEbits.RE2); // Set RE2 pin
+    CLEARBIT(PORTEbits.RE3); // Clear RE3 pin
+}
+
+// Initialize DAC (only use ADC1)
+void init_dac()
+{
+    // Disable ADC1
+    CLEARBIT(AD1CON1bits.ADON);
+
+    // Set AN9(Pin RB9) and AN11(Pin RB11) to input pins
+    SETBIT(TRISBbits.TRISB9); // Set RB9 (AN9) as input
+    SETBIT(TRISBbits.TRISB15); // Set RB15 (AN15) as input
+
+    // Set AN9(Pin RB9) and AN11(Pin RB11) as analog signal
+    CLEARBIT(AD1PCFGLbits.PCFG9); // Set AN9 as analog
+    CLEARBIT(AD1PCFGLbits.PCFG15); // Set AN15 as analog
+
+    // Configure AD1CON1
+    AD1CON1bits.FORM = 0; // Set output format to integer
+    AD1CON1bits.SSRC = 0x7; // Set automatic conversion
+
+    // Configure AD1CON2
+    AD1CON2 = 0; // Not using scanning sampling
+
+    // Configure AD1CON3
+    CLEARBIT(AD1CON3bits.ADRC); // Use internal clock source
+    AD1CON3bits.SAMC = 0x1F; // Auto-sample time = 31 TAD
+    AD1CON3bits.ADCS = 0x2; // ADC Conversion Clock = 3 Tcy
+
+    // Leave Configure AD1CON4 as its default value
+
+    // enable ADC1
+    SETBIT(AD1CON1bits.ADON); // Enable ADC module
+}
+
+// Change the dimension for touch screen
+void dim_change(char dim_touch_screen)
+{
+    // Measure the coordinate of x axis
+    if(dim_touch_screen == 'x') 
+    {
+        // Touch screen measurement the X coordination (E1=0, E2=1, E3=1)
+        CLEARBIT(PORTEbits.RE1); // E1=0
+        Nop(); 
+        SETBIT(PORTEbits.RE2); // E2=1
+        Nop(); 
+        SETBIT(PORTEbits.RE3); // E3=1
+        Nop(); 
+
+        // Set ADC1 to sample analog signal from AN15
+        AD1CHS0bits.CH0SA = 0x000F;
+    }
+    
+    // Measure the coordinate of x axis
+    else if(dim_touch_screen == 'y') 
+    {
+        // Touch screen measurement the X coordination (E1=1, E2=0, E3=0)
+        SETBIT(PORTEbits.RE1); // E1=1
+        Nop(); 
+        CLEARBIT(PORTEbits.RE2); // E2=0
+        Nop(); 
+        CLEARBIT(PORTEbits.RE3); // E3=0
+        Nop(); 
+
+        // Set ADC1 to sample analog signal from AN9
+        AD1CHS0bits.CH0SA = 0x0009;
+    }
+}
+
+// Read Ball's position using ADC1
+uint16_t read_ball_position()
+{
+    SETBIT(AD1CON1bits.SAMP);   // start to sample
+    while(!AD1CON1bits.DONE);   // wait for conversion process to finish
+    CLEARBIT(AD1CON1bits.DONE); // clear conversion done bit
+    return ADC1BUF0;    // return sample datas from ADC1 (with 16bits integers)
+}
+
+
+/*
+ * PD Controller
+ */
+
+// Producing coefficient Fpd for PD controller in x-axis
+float PD_Control_X()
+{
+    // update current time
+    current_time_x = system_time_counter;
+
+    // get the control force from PID controller
+    current_err_x = set_pos_x - filtered_pos_x;
+    Fp_x = Kp_x * current_err_x;
+    Fd_x = Kd_x * (current_err_x - previous_err_x) / (current_time_x - previous_time_x);
+    Fpd_x = Fp_x + Fd_x;
+
+    // store the current variable's values into the previous variable values
+    previous_time_x = current_time_x;
+    previous_err_x = current_err_x;
+
+    // saturation block: restrict the maximum and minimum value of Fpd_x
+    if(Fpd_x > 1)
+        return 1;
+    if(Fpd_x < -1)
+        return -1;
+
+    // return Fpd_x value
+    return Fpd_x;
+}
+
+
+// Adjusting the PWM signal of the X-axis servo motor according to PD coefficient Fpd
+void apply_Fpd_X(float Fpd_x)
+{
+    // calculate new position of surface in x-axis
+    X_PWM_PD_position_US = X_PWM_horizontal_position_US + Fpd_x * ((PWM_MAX_US - PWM_MIN_US) / 2.0f);
+    
+    // set duty cycle of x-axis servo motor
+    set_dutycycle('x', X_PWM_PD_position_US);
+}
+
+// Producing coefficient Fpd for PD controller in y-axis
+float PD_Control_Y()
+{
+    // update current time
+    current_time_y = system_time_counter;
+
+    // get the control force from PID controller
+    current_err_y = set_pos_y - filtered_pos_y;
+    Fp_y = Kp_y * current_err_y;
+    Fd_y = Kd_y * (current_err_y - previous_err_y) / (current_time_y - previous_time_y);
+    Fpd_y = Fp_y + Fd_y;
+
+    // store the current variable's values into the previous variable values
+    previous_time_y = current_time_y;
+    previous_err_y = current_err_y;
+
+    // saturation block: restrict the maximum and minimum value of Fpd_y
+    if(Fpd_y > 1)
+        return 1;
+    if(Fpd_y < -1)
+        return -1;
+
+    // return Fpd_y value
+    return Fpd_y;
+}
+
+void apply_Fpd_Y(float Fpd_y)
+{
+    // calculate new position of surface in x-axis
+    Y_PWM_PD_position_US = Y_PWM_horizontal_position_US + Fpd_y * ((PWM_MAX_US - PWM_MIN_US) / 2.0f);
+    
+    // set duty cycle of x-axis servo motor
+    set_dutycycle('y', Y_PWM_PD_position_US);
+}
+
+/*
+ * Butterworth Filter N=1, Cutoff 3 Hz, sampling @ 50 Hz
+ */
+
+// filter the position data from x-axis
+float butterworth_filter_x(float x)
+{
+    static float x1 = 0;
+    static float x2 = 0;
+
+    y = B1 * x + B2 * x1 - B2 * y1;
+
+    x1 = x;
+    y1 = y;
+
+    return y;
+}
+
+// filter the position data from y-axis
+float butterworth_filter_y(float x)
+{
+    static float x1 = 0;
+    static float x2 = 0;
+
+    y = B1 * x + B2 * x1 - B2 * y1;
+
+    x1 = x;
+    y1 = y;
+
+    return y;
+}
+
+
+/*
+ * main loop
+ */
+
+void control_task();
+void print_missed_deadlines_task();
+
+void main_loop()
+{
+    // print assignment information
+    lcd_printf("Lab06: Amazing Ball");
+    lcd_locate(0, 1);
+    lcd_printf("Group: 3");
+    lcd_locate(0, 2);
+    
+    // initialize touchscreen
+    init_touch_screen()
+
+    // Initialize DAC (only use ADC1)
+    init_dac()
+    
+    // initialize servos motor
+    initial_servos('x');
+    initial_servos('y');
+
+    // set duty cycle of horizontal position
+    set_dutycycle('x', X_PWM_horizontal_position_US);
+    set_dutycycle('y', Y_PWM_horizontal_position_US);
+
+    // preparing to measure X-coordination for touch screen and flags setting
+    dim_change('x');
+    axis_change_flag = 0;
+
+    // initialize timer 1 and start timer 1, wating for interrupt
+    interrupt_execute_flag = 1;
+    initialize_timer();
+
+    while(TRUE) {
+        if(interrupt_execute_flag == 0)
+        {
+            // measuring the coordination
+            if(axis_change_flag == 0)
+            {
+                position_x = read_ball_position();
+                dim_change('y');
+            }
+            else
+            {
+                position_y = read_ball_position();
+                dim_change('x');
+            }
+
+            // Adjust the position of the ball using servo motors
+            if(system_time_counter % 2 == 0)
+                control_task();
+
+            // Print the number of missed deadlines on the LCD
+            if(system_time_counter % 10 == 0)
+                print_missed_deadlines_task();
+
+            // wating for next interrupt
+            interrupt_execute_flag = 1;
+        }
+    }
+}
+
+void __attribute__((__interrupt__, __shadow__, __auto_psv__)) _T1Interrupt(void)
+{
+    // Clear interrupt flag
+    IFS0bits.T1IF = 0; 
+    
+    // every interrupt plus 1
+    system_time_counter++;
+
+    // tell touchscreen to prepare measuring another axis coordination
+    axis_change_flag = !axis_change_flag;
+
+    // make sure our system_time_counter not exceed T_CIR
+    if(system_time_counter >= T_CIR)
+        system_time_counter = 0;
+
+    // count the missed deadline missions
+    if(interrupt_execute_flag == 0)
+    {
+        missed_deadlines_sum++;
+        interrupt_execute_flag = 0;
+    }
+}
+
+// some functions after main loop
+void control_task()
+{
+    // filter the x and y-coordination
+    filtered_pos_x = butterworth_filter_x(position_x);
+    filtered_pos_y = butterworth_filter_y(position_y);
+
+    // calculate the set point position
+    set_pos_x = X_CEN + RD * cos(w_f * system_time_counter);
+    set_pos_y = Y_CEN + RD * cos(w_f * system_time_counter);
+
+    // use the error to calculate PD controller's coefficient Fpd_x and Fpd_y
+    Fpd_x = PD_Control_X();
+    Fpd_y = PD_Control_Y();
+
+    // apply the Fpd_x and Fpd_y to the servo motors
+    apply_Fpd_X(Fpd_x);
+    apply_Fpd_Y(Fpd_y);
+}
+
+void print_missed_deadlines_task()
+{
+    // Print the number of missed deadlines on the LCD
+    lcd_locate(0, 7);
+    lcd_printf("missed deadlines %d", missed_deadlines_sum);
+}
