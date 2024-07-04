@@ -45,13 +45,13 @@
 #define PWM_CYC_US 20000
 
 // the PWM signal Maintaining the ball in a horizontal position
-#define X_PWM_horizontal_position_US 1660
-#define Y_PWM_horizontal_position_US 1590
+#define X_PWM_horizontal_position_US 1463
+#define Y_PWM_horizontal_position_US 1530
 
 // Parameters of the target circle trajectory
 #define RD 100
 #define PI 3.14159f
-#define X_CEN  295
+#define X_CEN  378
 #define Y_CEN  385
 #define T_CIR  600
 
@@ -91,8 +91,8 @@ volatile float Fd_y;
 volatile float Fpd_y;
 
 // new position of surface in x and y-axis
-uint16_t X_PWM_PD_position_US
-uint16_t Y_PWM_PD_position_US
+uint16_t X_PWM_PD_position_US;
+uint16_t Y_PWM_PD_position_US;
 
 // Define the global variable of coordination x and y
 volatile uint16_t position_x;
@@ -112,7 +112,7 @@ volatile char interrupt_execute_flag;
  * Timer Code
  */
 
-void initialize_timer()
+void init_timer1()
 {
     // Enable RTC Oscillator -> this effectively does OSCCONbits.LPOSCEN = 1
     // but the OSCCON register is lock protected. That means you would have to 
@@ -143,13 +143,10 @@ void initialize_timer()
  * Servo Code
  */
 
-// Initialize servo motors based on the specified dimension of servos ('x' or 'y')
-void initial_servos(char dim_servos)
+// Timer setup
+void init_timer2()
 {
-    // Servo Initialization for 'x' Dimension
-    if(dim_servos == 'x')
-    {
-        // Setup Timer2
+    // Setup Timer2
         CLEARBIT(T2CONbits.TON);    // Disable Timer2
         CLEARBIT(T2CONbits.TCS);    // internal clock source
         CLEARBIT(T2CONbits.TGATE);  // Disable Gated Timer mode
@@ -157,12 +154,19 @@ void initial_servos(char dim_servos)
         T2CONbits.TCKPS = 0b10;     // Set Timer 2 prescaler to 1:64
         CLEARBIT(IFS0bits.T2IF);    // Clear Timer 2 interrupt flag
         CLEARBIT(IEC0bits.T2IE);    // Disable Timer 2 interrupt
-        PR2 = (PWM_CYC_US / 1000000) * (FCY / 64);  // Set Timer 2 period (20ms) (PR2=4000)
+        PR2 = (PWM_CYC_US / 1000000.0f) * (FCY / 64);  // Set Timer 2 period (20ms) (PR2=4000)
+}
 
+// Initialize servo motors based on the specified dimension of servos ('x' or 'y')
+void init_servos(char dim_servos)
+{
+    // Servo Initialization for 'x' Dimension
+    if(dim_servos == 'x')
+    {
         // Setup OC8
         CLEARBIT(TRISDbits.TRISD7); // Set RD7 (Output Compare 8) as output
-        OC8R = ((PWM_CYC_US - PWM_MID_US) / 1000000) * (FCY / 64); // Set initial duty cycle for OC8
-        OC8RS = ((PWM_CYC_US - PWM_MID_US) / 1000000) * (FCY / 64); // Set secondary duty
+        OC8R = ((PWM_CYC_US - PWM_MID_US) / 1000000.0f) * (FCY / 64); // Set initial duty cycle for OC8
+        OC8RS = ((PWM_CYC_US - PWM_MID_US) / 1000000.0f) * (FCY / 64); // Set secondary duty
         OC8CON = 0x0006; // Configure OC8 for PWM mode without fault check, using Timer 2
     }
 
@@ -171,8 +175,8 @@ void initial_servos(char dim_servos)
     {
         // Setup OC7
         CLEARBIT(TRISDbits.TRISD6); // Set RD6 (Output Compare 7) as output
-        OC7R = ((PWM_CYC_US - PWM_MID_US) / 1000000) * (FCY / 64); // Set initial duty cycle for OC8
-        OC7RS = ((PWM_CYC_US - PWM_MID_US) / 1000000) * (FCY / 64); // Set secondary duty
+        OC7R = ((PWM_CYC_US - PWM_MID_US) / 1000000.0f) * (FCY / 64); // Set initial duty cycle for OC8
+        OC7RS = ((PWM_CYC_US - PWM_MID_US) / 1000000.0f) * (FCY / 64); // Set secondary duty
         OC7CON = 0x0006; // Configure OC7 for PWM mode without fault check, using Timer 2
 
         // Turn on Timer 2
@@ -186,13 +190,13 @@ void set_dutycycle(char dim_servos, int duty_cycle)
     // Set Duty Cycle for 'x' Dimension Servo
     if(dim_servos == 'x')
     {
-        OC8RS = ((PWM_CYC_US - duty_cycle) / 1000000) * (FCY / 64); // Load new duty cycle for OC8
+        OC8RS = ((PWM_CYC_US - duty_cycle) / 1000000.0f) * (FCY / 64); // Load new duty cycle for OC8
     }
 
     // Set Duty Cycle for 'y' Dimension Servo
     else if(dim_servos == 'y')
     {
-        OC7RS = ((PWM_CYC_US - duty_cycle) / 1000000) * (FCY / 64);// Load new duty cycle for OC7
+        OC7RS = ((PWM_CYC_US - duty_cycle) / 1000000.0f) * (FCY / 64);// Load new duty cycle for OC7
     }
 }
 
@@ -375,9 +379,9 @@ void apply_Fpd_Y(float Fpd_y)
 float butterworth_filter_x(float x)
 {
     static float x1 = 0;
-    static float x2 = 0;
+    static float y1 = 0;
 
-    y = B1 * x + B2 * x1 - B2 * y1;
+    float y = B1 * x + B2 * x1 - B2 * y1;
 
     x1 = x;
     y1 = y;
@@ -389,9 +393,9 @@ float butterworth_filter_x(float x)
 float butterworth_filter_y(float x)
 {
     static float x1 = 0;
-    static float x2 = 0;
+    static float y1 = 0;
 
-    y = B1 * x + B2 * x1 - B2 * y1;
+    float y = B1 * x + B2 * x1 - B2 * y1;
 
     x1 = x;
     y1 = y;
@@ -416,14 +420,17 @@ void main_loop()
     lcd_locate(0, 2);
     
     // initialize touchscreen
+    init_timer2();
+    
+    // initialize touchscreen
     init_touch_screen()
 
     // Initialize DAC (only use ADC1)
     init_dac()
     
     // initialize servos motor
-    initial_servos('x');
-    initial_servos('y');
+    init_servos('x');
+    init_servos('y');
 
     // set duty cycle of horizontal position
     set_dutycycle('x', X_PWM_horizontal_position_US);
@@ -435,7 +442,7 @@ void main_loop()
 
     // initialize timer 1 and start timer 1, wating for interrupt
     interrupt_execute_flag = 1;
-    initialize_timer();
+    init_timer1();
 
     while(TRUE) {
         if(interrupt_execute_flag == 0)
