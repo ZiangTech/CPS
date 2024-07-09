@@ -24,9 +24,9 @@
 
 // PD controller coefficients from tuning
 #define Kp_x 0.001f
-#define Kd_x 0.02f
+#define Kd_x 0.01f
 #define Kp_y 0.001f
-#define Kd_y 0.02f
+#define Kd_y 0.01f
 
 /*
  * Common Definitions
@@ -46,7 +46,7 @@
 
 // the PWM signal Maintaining the ball in a horizontal position
 #define X_PWM_horizontal_position_US 1463
-#define Y_PWM_horizontal_position_US 1530
+#define Y_PWM_horizontal_position_US 1531
 
 // Parameters of the target circle trajectory
 #define RD 100
@@ -130,7 +130,7 @@ void init_timer1()
     T1CONbits.TGATE = 0; // Disable gated time accumulation
     T1CONbits.TSYNC = 0; // Disable synchronization
 
-    PR1 = (1 / 100) * (FCY / 256); // Set Timer1 period for 10ms interrupt
+    PR1 = (1 / 100.0f) * (FCY / 256); // Set Timer1 period for 10ms interrupt
     TMR1 = 0x00; // Reset Timer Values
 
     IPC0bits.T1IP = 0x01; // Set Timer1 interrupt priority
@@ -308,7 +308,7 @@ float PD_Control_X()
     // get the control force from PID controller
     current_err_x = set_pos_x - filtered_pos_x;
     Fp_x = Kp_x * current_err_x;
-    Fd_x = Kd_x * (current_err_x - previous_err_x) / (current_time_x - previous_time_x);
+    Fd_x = Kd_x * (current_err_x - previous_err_x); // / (current_time_x - previous_time_x)
     Fpd_x = Fp_x + Fd_x;
 
     // store the current variable's values into the previous variable values
@@ -345,7 +345,7 @@ float PD_Control_Y()
     // get the control force from PID controller
     current_err_y = set_pos_y - filtered_pos_y;
     Fp_y = Kp_y * current_err_y;
-    Fd_y = Kd_y * (current_err_y - previous_err_y) / (current_time_y - previous_time_y);
+    Fd_y = Kd_y * (current_err_y - previous_err_y); // / (current_time_y - previous_time_y)
     Fpd_y = Fp_y + Fd_y;
 
     // store the current variable's values into the previous variable values
@@ -419,14 +419,14 @@ void main_loop()
     lcd_printf("Group: 3");
     lcd_locate(0, 2);
     
-    // initialize touchscreen
+    // initialize timer 2
     init_timer2();
     
-    // initialize touchscreen
-    init_touch_screen()
+    // initialize touch screen
+    init_touch_screen();
 
     // Initialize DAC (only use ADC1)
-    init_dac()
+    init_dac();
     
     // initialize servos motor
     init_servos('x');
