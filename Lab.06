@@ -23,9 +23,9 @@
 #define A2 -0.6795993f
 
 // PD controller coefficients from tuning
-#define Kp_x 0.002f
+#define Kp_x 0.0022f
 #define Kd_x 0.04f
-#define Kp_y 0.002f
+#define Kp_y 0.0022f
 #define Kd_y 0.04f
 
 /*
@@ -49,11 +49,11 @@
 #define Y_PWM_horizontal_position_US 1542
 
 // Parameters of the target circle trajectory
-#define RD 50
+#define RD 100
 #define PI 3.14159f
 #define X_CEN  400
 #define Y_CEN  430
-#define T_CIR  350
+#define T_CIR  600
 
 /*
  * Global Variables
@@ -516,6 +516,7 @@ void __attribute__((__interrupt__, __shadow__, __auto_psv__)) _T1Interrupt(void)
     if(interrupt_execute_flag == 0)
     {
         missed_deadlines_sum++;
-        interrupt_execute_flag = 0;
     }
+    
+    interrupt_execute_flag = 0;
 }
