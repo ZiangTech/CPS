@@ -87,7 +87,7 @@ uint16_t Y_PWM_PD_position_US;
 // uint16_t position_y;
 
 // Frequency for the circular motion calculation
-float w_f = 2 * (PI / T_CIR);
+float w_f = 2 * PI / T_CIR;
 
 // The total number of missed deadlines
 uint16_t missed_deadlines_sum;
@@ -118,7 +118,7 @@ void init_timer1()
     T1CONbits.TGATE = 0; // Disable gated time accumulation
     T1CONbits.TSYNC = 0; // Disable synchronization
 
-    PR1 = (1 / 100) * (FCY / 256); // Set Timer1 period for 10ms interrupt
+    PR1 = FCY / 256 * 1 / 100 ; // Set Timer1 period for 10ms interrupt
     TMR1 = 0x00; // Reset Timer Values
 
     IPC0bits.T1IP = 0x01; // Set Timer1 interrupt priority
@@ -396,6 +396,13 @@ float butterworth_filter_y(float x)
  * main loop
  */
 
+void set_current_pos()
+{
+    // Calculate and set the current position based on system time
+    set_pos_x = RD * cos(w_f * system_time_counter) + X_CEN; // X-coordinate
+    set_pos_y = RD * sin(w_f * system_time_counter) + Y_CEN; // Y-coordinate
+}
+
 // some functions after main loop
 void control_task()
 {
@@ -404,8 +411,7 @@ void control_task()
     filtered_pos_y = butterworth_filter_y((float)current_pos_y);
 
     // calculate the set point position
-    set_pos_x = X_CEN + RD * cos(w_f * system_time_counter);
-    set_pos_y = Y_CEN + RD * sin(w_f * system_time_counter);
+    set_current_pos();
 
     // use the error to calculate PD controller's coefficient Fpd_x and Fpd_y
     float Fpd_x = PD_Control_X();
@@ -513,4 +519,3 @@ void __attribute__((__interrupt__, __shadow__, __auto_psv__)) _T1Interrupt(void)
         interrupt_execute_flag = 0;
     }
 }
-
