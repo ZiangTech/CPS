@@ -118,7 +118,7 @@ void init_timer1()
     T1CONbits.TGATE = 0; // Disable gated time accumulation
     T1CONbits.TSYNC = 0; // Disable synchronization
 
-    PR1 = (1 / 100.0f) * (FCY / 256); // Set Timer1 period for 10ms interrupt
+    PR1 = (1 / 100) * (FCY / 256); // Set Timer1 period for 10ms interrupt
     TMR1 = 0x00; // Reset Timer Values
 
     IPC0bits.T1IP = 0x01; // Set Timer1 interrupt priority
@@ -142,7 +142,7 @@ void init_timer2()
         T2CONbits.TCKPS = 0b10;     // Set Timer 2 prescaler to 1:64
         CLEARBIT(IFS0bits.T2IF);    // Clear Timer 2 interrupt flag
         CLEARBIT(IEC0bits.T2IE);    // Disable Timer 2 interrupt
-        PR2 = (PWM_CYC_US / 1000000.0f) * (FCY / 64);  // Set Timer 2 period (20ms) (PR2=4000)
+        PR2 = PWM_CYC_US * (FCY / 1000000) / 64;  // Set Timer 2 period (20ms) (PR2=4000)
 }
 
 // Initialize servo motors based on the specified dimension of servos ('x' or 'y')
@@ -153,8 +153,8 @@ void init_servos(char dim_servos)
     {
         // Setup OC8
         CLEARBIT(TRISDbits.TRISD7); // Set RD7 (Output Compare 8) as output
-        OC8R = ((PWM_CYC_US - PWM_MID_US) / 1000000.0f) * (FCY / 64); // Set initial duty cycle for OC8
-        OC8RS = ((PWM_CYC_US - PWM_MID_US) / 1000000.0f) * (FCY / 64); // Set secondary duty
+        OC8R = (PWM_CYC_US - PWM_MID_US) * (FCY / 1000000) / 64; // Set initial duty cycle for OC8
+        OC8RS = (PWM_CYC_US - PWM_MID_US) * (FCY / 1000000) / 64; // Set secondary duty
         OC8CON = 0x0006; // Configure OC8 for PWM mode without fault check, using Timer 2
     }
 
@@ -163,8 +163,8 @@ void init_servos(char dim_servos)
     {
         // Setup OC7
         CLEARBIT(TRISDbits.TRISD6); // Set RD6 (Output Compare 7) as output
-        OC7R = ((PWM_CYC_US - PWM_MID_US) / 1000000.0f) * (FCY / 64); // Set initial duty cycle for OC8
-        OC7RS = ((PWM_CYC_US - PWM_MID_US) / 1000000.0f) * (FCY / 64); // Set secondary duty
+        OC7R = (PWM_CYC_US - PWM_MID_US) * (FCY / 1000000) / 64; // Set initial duty cycle for OC8
+        OC7RS = (PWM_CYC_US - PWM_MID_US) * (FCY / 1000000) / 64; // Set secondary duty
         OC7CON = 0x0006; // Configure OC7 for PWM mode without fault check, using Timer 2
 
         // Turn on Timer 2
@@ -178,13 +178,13 @@ void set_dutycycle(char dim_servos, int duty_cycle)
     // Set Duty Cycle for 'x' Dimension Servo
     if(dim_servos == 'x')
     {
-        OC8RS = ((PWM_CYC_US - duty_cycle) / 1000000.0f) * (FCY / 64); // Load new duty cycle for OC8
+        OC8RS = (PWM_CYC_US - duty_cycle) * (FCY / 1000000) / 64; // Load new duty cycle for OC8
     }
 
     // Set Duty Cycle for 'y' Dimension Servo
     else if(dim_servos == 'y')
     {
-        OC7RS = ((PWM_CYC_US - duty_cycle) / 1000000.0f) * (FCY / 64);// Load new duty cycle for OC7
+        OC7RS = (PWM_CYC_US - duty_cycle) * (FCY / 1000000) / 64;// Load new duty cycle for OC7
     }
 }
 
@@ -442,7 +442,7 @@ void main_loop()
             {
                 current_pos_x = read_ball_position();
                 dim_change('y');
-            }print_missed_deadlines_task
+            }
             else
             {
                 current_pos_y = read_ball_position();
