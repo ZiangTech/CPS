@@ -89,12 +89,6 @@ char deadline_flag;
 uint16_t deadline_sum;
 char axis_switch_flag;
 
-// The total number of missed deadlines
-uint16_t missed_deadlines_sum;
-
-// Setting the flags of interrupt and axis toggling
-char axis_change_flag;
-char interrupt_execute_flag;
 
 /*
  * Timer Code
@@ -118,7 +112,7 @@ void init_timer()
     T1CONbits.TGATE = 0; // Disable gated time accumulation
     T1CONbits.TSYNC = 0; // Disable synchronization
 
-    PR1 = (1 / 100) * (FCY / 256); // Set Timer1 period for 10ms interrupt
+    PR1 = FCY / 256 * 1 / 100; // Set Timer1 period for 10ms interrupt
     TMR1 = 0x00; // Reset Timer Values
 
     IPC0bits.T1IP = 0x01; // Set Timer1 interrupt priority
@@ -134,7 +128,7 @@ void init_timer()
 // Timer setup
 
 // Initialize servo motors based on the specified dimension of servos ('x' or 'y')
-void init_servos(char dim_servos)
+void init_servo(char dim_servos)
 {
     // Servo Initialization for 'x' Dimension
     if(dim_servos == 'x')
@@ -279,7 +273,7 @@ uint16_t read_ball_position()
  */
 
 // Producing coefficient Fpd for PD controller in x-axis
-float PD_Control_X()
+float apply_PD_X()
 {
     // PD Control for X-axis
     float current_t_x = systime;
@@ -309,7 +303,7 @@ void apply_Fpd_X(float PD_x)
 }
 
 // Producing coefficient Fpd for PD controller in y-axis
-float PD_Control_Y()
+float apply_PD_Y()
 {
     // PD Control for Y-axis
     float current_t_y = systime;
@@ -342,30 +336,27 @@ void apply_Fpd_Y(float PD_y)
 // filter the position data from x-axis
 float butterworth_filter_x(float x)
 {
+    // Apply Butterworth filter for X-axis data
     static float x1 = 0;
     static float y1 = 0;
-
-    float y = B1 * x + B2 * x1 - A2 * y1;
-
-    x1 = x;
-    y1 = y;
-
-    return y;
+    float y = B1 * x + B2 * x1 - A2 * y1; // Calculate filtered output
+    x1 = x; // Update previous input
+    y1 = y; // Update previous output
+    return y; // Return filtered value
 }
 
 // filter the position data from y-axis
 float butterworth_filter_y(float x)
 {
+     // Apply Butterworth filter for Y-axis data
     static float x1 = 0;
     static float y1 = 0;
-
-    float y = B1 * x + B2 * x1 - A2 * y1;
-
-    x1 = x;
-    y1 = y;
-
-    return y;
+    float y = B1 * x + B2 * x1 - A2 * y1; // Calculate filtered output
+    x1 = x; // Update previous input
+    y1 = y; // Update previous output
+    return y; // Return filtered value
 }
+
 
 
 /*
@@ -379,28 +370,45 @@ void control_task()
     fpos_x = butterworth_filter_x((float)pos_x);
     fpos_y = butterworth_filter_y((float)pos_y);
 
-    // calculate the set point position
-    set_pos_x = X_CEN;
-    set_pos_y = Y_CEN;
+    
 
     // use the error to calculate PD controller's coefficient Fpd_x and Fpd_y
-    float PD_x = PD_Control_X();
-    float PD_y = PD_Control_Y();
+    float PD_x = apply_PD_X();
+    float PD_y = apply_PD_Y();
 
     // apply the Fpd_x and Fpd_y to the servo motors
     apply_Fpd_X(PD_x);
     apply_Fpd_Y(PD_y);
+    
+     // Control task for managing PD control loop
+    fpos_x = butterworth_filter_x((float)pos_x);
+    fpos_y = butterworth_filter_y((float)pos_y);
+    // calculate the set point position
+    set_pos_x = X_CEN;
+    set_pos_y = Y_CEN;
+    
+    PD_x = apply_PD_X();
+    apply_PD_X(PD_x); // Apply PD control to X-axis
+    PD_y = apply_PD_Y();
+    apply_PD_Y(PD_y); // Apply PD control to Y-axis
 }
 
-void print_missed_deadlines_task()
+void print_deadline_task()
 {
     // Print the number of missed deadlines on the LCD
     lcd_locate(0, 7);
-    lcd_printf("missed deadlines %d", missed_deadlines_sum);
+    lcd_printf("missed deadlines %d", deadline_sum);
     
     // display the current coordinations in the lcd screen
     lcd_locate(0, 5);
     lcd_printf("x/y: %03d/%03d", pos_x, pos_y);
+}
+
+void set_current_pos()
+{
+    // Calculate and set the current position based on system time
+    set_pos_x = RD * cos(w_f * systime) + X_CEN; // X-coordinate
+    set_pos_y = RD * sin(w_f * systime) + Y_CEN; // Y-coordinate
 }
 
 void main_loop()
@@ -413,36 +421,20 @@ void main_loop()
     
 
     
-    // initialize servos motor
-    init_servos('x');
-    init_servos('y');
-    
-        
-    
-    // initialize touch screen
+    // Initialization
+    init_servo('x');
+    init_servo('y');
     init_touch_screen();
-
-    
-
-    // set duty cycle of horizontal position
-    set_dutycycle('x', X_LEVELED_US);
-    set_dutycycle('y', Y_LEVELED_US);
-
-    // preparing to measure X-coordination for touch screen and flags setting
+    set_current_pos();
     dim_change('x');
-    axis_change_flag = 0;
-
-    // initialize timer 1 and start timer 1, wating for interrupt
-    interrupt_execute_flag = 1;
-    
-    // initialize timer 1
+    deadline_flag = 1;
     init_timer();
 
     while(TRUE) {
-        if(interrupt_execute_flag == 0)
+         if (deadline_flag == 0)
         {
-            // measuring the coordination
-            if(axis_change_flag == 0)
+            // Read position and switch axis
+            if (axis_switch_flag == 0)
             {
                 pos_x = read_ball_position();
                 dim_change('y');
@@ -453,39 +445,27 @@ void main_loop()
                 dim_change('x');
             }
 
-            // Adjust the position of the ball using servo motors
-            if(systime % 2 == 0)
-                control_task();
-
-            // Print the number of missed deadlines on the LCD
-            if(systime % 10 == 0)
-                print_missed_deadlines_task();
-
-            // wating for next interrupt
-            interrupt_execute_flag = 1;
+            // Control task and deadline task
+            if (systime % 2 == 0) control_task();
+            if (systime % 20 == 0) print_deadline_task();
+            
+            
+            deadline_flag = 1;
         }
     }
 }
 
 void __attribute__((__interrupt__, __shadow__, __auto_psv__)) _T1Interrupt(void)
 {
-    // Clear interrupt flag
-    IFS0bits.T1IF = 0; 
-    
-    // every interrupt plus 1
+    // Timer1 Interrupt Handler
+    IFS0bits.T1IF = 0; // Clear interrupt flag
     systime++;
+    axis_switch_flag = !axis_switch_flag; // Toggle axis switch
 
-    // tell touchscreen to prepare measuring another axis coordination
-    axis_change_flag = !axis_change_flag;
+    // Reset systime if it reaches the circular time
+    if (systime >= T_CIR) systime = 0;
 
-    // make sure our system_time_counter not exceed T_CIR
-    if(systime >= T_CIR)
-        systime = 0;
-
-    // count the missed deadline missions
-    if(interrupt_execute_flag == 0)
-    {
-        missed_deadlines_sum++;
-        interrupt_execute_flag = 0;
-    }
+    // Increment deadline counter if deadline is missed
+    if (deadline_flag == 0) deadline_sum++;
+    deadline_flag = 0;
 }
