@@ -442,7 +442,7 @@ void main_loop()
             {
                 current_pos_x = read_ball_position();
                 dim_change('y');
-            }
+            }print_missed_deadlines_task
             else
             {
                 current_pos_y = read_ball_position();
