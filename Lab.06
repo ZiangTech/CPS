@@ -24,9 +24,9 @@
 
 // PD controller coefficients from tuning
 #define Kp_x 0.0022f
-#define Kd_x 0.04f
+#define Kd_x 0.044f
 #define Kp_y 0.0022f
-#define Kd_y 0.04f
+#define Kd_y 0.044f
 
 /*
  * Common Definitions
@@ -51,9 +51,9 @@
 // Parameters of the target circle trajectory
 #define RD 100
 #define PI 3.14159f
-#define X_CEN  400
-#define Y_CEN  430
-#define T_CIR  600
+#define X_CEN  390
+#define Y_CEN  400
+#define T_CIR  500
 
 /*
  * Global Variables
@@ -460,6 +460,8 @@ void main_loop()
 
     // preparing to measure X-coordination for touch screen and flags setting
     dim_change('x');
+    
+    // change the coordination we reading
     axis_change_flag = 0;
 
     // initialize timer 1 and start timer 1, wating for interrupt
