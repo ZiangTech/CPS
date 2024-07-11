@@ -159,7 +159,7 @@ void init_servos(char dim_servos)
     }
 
     // Servo Initialization for 'y' Dimension
-    else if(dim_servos == 'y')
+    if(dim_servos == 'y')
     {
         // Setup OC7
         CLEARBIT(TRISDbits.TRISD6); // Set RD6 (Output Compare 7) as output
@@ -396,8 +396,36 @@ float butterworth_filter_y(float x)
  * main loop
  */
 
-void control_task();
-void print_missed_deadlines_task();
+// some functions after main loop
+void control_task()
+{
+    // filter the x and y-coordination
+    filtered_pos_x = butterworth_filter_x((float)current_pos_x);
+    filtered_pos_y = butterworth_filter_y((float)current_pos_y);
+
+    // calculate the set point position
+    set_pos_x = X_CEN + RD * cos(w_f * system_time_counter);
+    set_pos_y = Y_CEN + RD * sin(w_f * system_time_counter);
+
+    // use the error to calculate PD controller's coefficient Fpd_x and Fpd_y
+    float Fpd_x = PD_Control_X();
+    float Fpd_y = PD_Control_Y();
+
+    // apply the Fpd_x and Fpd_y to the servo motors
+    apply_Fpd_X(Fpd_x);
+    apply_Fpd_Y(Fpd_y);
+}
+
+void print_missed_deadlines_task()
+{
+    // Print the number of missed deadlines on the LCD
+    lcd_locate(0, 7);
+    lcd_printf("missed deadlines %d", missed_deadlines_sum);
+    
+    // display the current coordinations in the lcd screen
+    lcd_locate(0, 5);
+    lcd_printf("x/y: %03d/%03d", current_pos_x, current_pos_y);
+}
 
 void main_loop()
 {
@@ -486,33 +514,3 @@ void __attribute__((__interrupt__, __shadow__, __auto_psv__)) _T1Interrupt(void)
     }
 }
 
-// some functions after main loop
-void control_task()
-{
-    // filter the x and y-coordination
-    filtered_pos_x = butterworth_filter_x((float)current_pos_x);
-    filtered_pos_y = butterworth_filter_y((float)current_pos_y);
-
-    // calculate the set point position
-    set_pos_x = X_CEN + RD * cos(w_f * system_time_counter);
-    set_pos_y = Y_CEN + RD * sin(w_f * system_time_counter);
-
-    // use the error to calculate PD controller's coefficient Fpd_x and Fpd_y
-    float Fpd_x = PD_Control_X();
-    float Fpd_y = PD_Control_Y();
-
-    // apply the Fpd_x and Fpd_y to the servo motors
-    apply_Fpd_X(Fpd_x);
-    apply_Fpd_Y(Fpd_y);
-}
-
-void print_missed_deadlines_task()
-{
-    // Print the number of missed deadlines on the LCD
-    lcd_locate(0, 7);
-    lcd_printf("missed deadlines %d", missed_deadlines_sum);
-    
-    // display the current coordinations in the lcd screen
-    lcd_locate(0, 5);
-    lcd_printf("x/y: %03d/%03d", current_pos_x, current_pos_y);
-}
