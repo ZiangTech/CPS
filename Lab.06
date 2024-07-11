@@ -23,10 +23,10 @@
 #define A2 -0.6795993f
 
 // PD controller coefficients from tuning
-#define Kp_x 0.001f
-#define Kd_x 0.01f
-#define Kp_y 0.001f
-#define Kd_y 0.01f
+#define Kp_x 0.002f
+#define Kd_x 0.04f
+#define Kp_y 0.002f
+#define Kd_y 0.04f
 
 /*
  * Common Definitions
@@ -45,68 +45,56 @@
 #define PWM_CYC_US 20000
 
 // the PWM signal Maintaining the ball in a horizontal position
-#define X_PWM_horizontal_position_US 1463
-#define Y_PWM_horizontal_position_US 1531
+#define X_PWM_horizontal_position_US 1825
+#define Y_PWM_horizontal_position_US 1542
 
 // Parameters of the target circle trajectory
-#define RD 100
+#define RD 50
 #define PI 3.14159f
-#define X_CEN  378
-#define Y_CEN  385
-#define T_CIR  600
+#define X_CEN  400
+#define Y_CEN  430
+#define T_CIR  350
 
 /*
  * Global Variables
  */
 
 // Positions in X and Y directions
-volatile float set_pos_x;    // reference position x
-volatile float set_pos_y;    // reference position y
-volatile uint16_t current_pos_x; // position x with noisy
-volatile uint16_t current_pos_y; // position y with noisy
-volatile float filtered_pos_x;    // position x without noisy
-volatile float filtered_pos_y;    // position y without noisy
+float set_pos_x;    // reference position x
+float set_pos_y;    // reference position y
+uint16_t current_pos_x; // position x with noisy
+uint16_t current_pos_y; // position y with noisy
+float filtered_pos_x;    // position x without noisy
+float filtered_pos_y;    // position y without noisy
 
 // System time counter every interrupt
-volatile uint16_t system_time_counter = 0;
+uint16_t system_time_counter = 0;
 
 // Time values in PD controller
-volatile float current_time_x = 0;
-volatile float current_time_y = 0;
-volatile float previous_time_x = 0;
-volatile float previous_time_y = 0;
+float previous_time_x = 0;
+float previous_time_y = 0;
 
 // Error values in PD controller
-volatile float current_err_x = 0;
-volatile float current_err_y = 0;
-volatile float previous_err_x = 0;
-volatile float previous_err_y = 0;
-
-// Force of x and y-axis resulted by PD controller
-volatile float Fp_x;
-volatile float Fd_x;
-volatile float Fpd_x;
-volatile float Fp_y;
-volatile float Fd_y;
-volatile float Fpd_y;
+float previous_err_x = 0;
+float previous_err_y = 0;
 
 // new position of surface in x and y-axis
 uint16_t X_PWM_PD_position_US;
 uint16_t Y_PWM_PD_position_US;
 
 // Define the global variable of coordination x and y
-volatile uint16_t position_x;
-volatile uint16_t position_y;
+// uint16_t position_x;
+// uint16_t position_y;
 
 // Frequency for the circular motion calculation
-volatile float w_f = 2 * PI * (1 / T_CIR);
+float w_f = 2 * (PI / T_CIR);
 
 // The total number of missed deadlines
-volatile uint16_t missed_deadlines_sum;
+uint16_t missed_deadlines_sum;
 
 // Setting the flags of interrupt and axis toggling
-volatile char axis_change_flag;
-volatile char interrupt_execute_flag;
+char axis_change_flag;
+char interrupt_execute_flag;
 
 /*
  * Timer Code
@@ -303,13 +291,13 @@ uint16_t read_ball_position()
 float PD_Control_X()
 {
     // update current time
-    current_time_x = system_time_counter;
+    float current_time_x = system_time_counter;
 
     // get the control force from PID controller
-    current_err_x = set_pos_x - filtered_pos_x;
-    Fp_x = Kp_x * current_err_x;
-    Fd_x = Kd_x * (current_err_x - previous_err_x); // / (current_time_x - previous_time_x)
-    Fpd_x = Fp_x + Fd_x;
+    float current_err_x = set_pos_x - filtered_pos_x;
+    float Fp_x = Kp_x * current_err_x;
+    float Fd_x = Kd_x * (current_err_x - previous_err_x) / (current_time_x - previous_time_x);
+    float Fpd_x = Fp_x + Fd_x;
 
     // store the current variable's values into the previous variable values
     previous_time_x = current_time_x;
@@ -340,13 +328,13 @@ void apply_Fpd_X(float Fpd_x)
 float PD_Control_Y()
 {
     // update current time
-    current_time_y = system_time_counter;
+    float current_time_y = system_time_counter;
 
     // get the control force from PID controller
-    current_err_y = set_pos_y - filtered_pos_y;
-    Fp_y = Kp_y * current_err_y;
-    Fd_y = Kd_y * (current_err_y - previous_err_y); // / (current_time_y - previous_time_y)
-    Fpd_y = Fp_y + Fd_y;
+    float current_err_y = set_pos_y - filtered_pos_y;
+    float Fp_y = Kp_y * current_err_y;
+    float Fd_y = Kd_y * (current_err_y - previous_err_y) / (current_time_y - previous_time_y);
+    float Fpd_y = Fp_y + Fd_y;
 
     // store the current variable's values into the previous variable values
     previous_time_y = current_time_y;
@@ -381,7 +369,7 @@ float butterworth_filter_x(float x)
     static float x1 = 0;
     static float y1 = 0;
 
-    float y = B1 * x + B2 * x1 - B2 * y1;
+    float y = B1 * x + B2 * x1 - A2 * y1;
 
     x1 = x;
     y1 = y;
@@ -395,7 +383,7 @@ float butterworth_filter_y(float x)
     static float x1 = 0;
     static float y1 = 0;
 
-    float y = B1 * x + B2 * x1 - B2 * y1;
+    float y = B1 * x + B2 * x1 - A2 * y1;
 
     x1 = x;
     y1 = y;
@@ -442,6 +430,8 @@ void main_loop()
 
     // initialize timer 1 and start timer 1, wating for interrupt
     interrupt_execute_flag = 1;
+    
+    // initialize timer 1
     init_timer1();
 
     while(TRUE) {
@@ -450,12 +440,12 @@ void main_loop()
             // measuring the coordination
             if(axis_change_flag == 0)
             {
-                position_x = read_ball_position();
+                current_pos_x = read_ball_position();
                 dim_change('y');
             }
             else
             {
-                position_y = read_ball_position();
+                current_pos_y = read_ball_position();
                 dim_change('x');
             }
 
@@ -500,16 +490,16 @@ void __attribute__((__interrupt__, __shadow__, __auto_psv__)) _T1Interrupt(void)
 void control_task()
 {
     // filter the x and y-coordination
-    filtered_pos_x = butterworth_filter_x(position_x);
-    filtered_pos_y = butterworth_filter_y(position_y);
+    filtered_pos_x = butterworth_filter_x((float)current_pos_x);
+    filtered_pos_y = butterworth_filter_y((float)current_pos_y);
 
     // calculate the set point position
     set_pos_x = X_CEN + RD * cos(w_f * system_time_counter);
-    set_pos_y = Y_CEN + RD * cos(w_f * system_time_counter);
+    set_pos_y = Y_CEN + RD * sin(w_f * system_time_counter);
 
     // use the error to calculate PD controller's coefficient Fpd_x and Fpd_y
-    Fpd_x = PD_Control_X();
-    Fpd_y = PD_Control_Y();
+    float Fpd_x = PD_Control_X();
+    float Fpd_y = PD_Control_Y();
 
     // apply the Fpd_x and Fpd_y to the servo motors
     apply_Fpd_X(Fpd_x);
@@ -521,4 +511,8 @@ void print_missed_deadlines_task()
     // Print the number of missed deadlines on the LCD
     lcd_locate(0, 7);
     lcd_printf("missed deadlines %d", missed_deadlines_sum);
+    
+    // display the current coordinations in the lcd screen
+    lcd_locate(0, 5);
+    lcd_printf("x/y: %03d/%03d", current_pos_x, current_pos_y);
 }
